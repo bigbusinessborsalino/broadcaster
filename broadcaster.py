@@ -6,7 +6,7 @@ import requests
 import os
 from keep_alive import keep_alive
 # HARDCODE YOUR WORKING CREDENTIALS HERE
-TELEGRAM_BOT_TOKEN="8386271961:AAEJxcI2PSmJTYtmqOuyl2MqF9mNBXbwAsc"
+TELEGRAM_BOT_TOKEN=""
 
 TELEGRAM_CHAT_ID="-1003879192312"
 # All 10 regular news countries + Japan for Anime
