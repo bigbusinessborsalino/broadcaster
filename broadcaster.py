@@ -4,11 +4,18 @@ import schedule
 import time
 import requests
 import os
+import hashlib
+from pymongo import MongoClient
 from keep_alive import keep_alive
-# HARDCODE YOUR WORKING CREDENTIALS HERE
-TELEGRAM_BOT_TOKEN=""
+from dotenv import load_dotenv
 
-TELEGRAM_CHAT_ID="-1003879192312"
+load_dotenv()
+
+# Pulling credentials from Render Environment Variables safely
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "-1003879192312")
+MONGO_URI = os.getenv("MONGO_URI")
+
 # All 10 regular news countries + Japan for Anime
 COUNTRIES = {
     "IN": "India", "US": "USA", "JP": "Japan", "GB": "UK", 
@@ -53,7 +60,6 @@ def get_real_trends(country_code, country_name, limit=10):
             image_url = "No Image"
             news_url = "No Link"
             
-            # Dig deeper into the XML to find the hidden image and news article
             for child in trend:
                 if 'approx_traffic' in child.tag:
                     traffic = child.text
@@ -63,7 +69,7 @@ def get_real_trends(country_code, country_name, limit=10):
                     for news_child in child:
                         if 'news_item_url' in news_child.tag:
                             news_url = news_child.text
-                            break # Just grab the first/top news link
+                            break 
                             
             results.append({
                 "topic": topic, 
@@ -78,7 +84,7 @@ def get_real_trends(country_code, country_name, limit=10):
         return []
 
 def hunt_for_new_trends():
-    """Pulls global trends with images, writes them to ONE text file, and uploads."""
+    """Pulls global trends, checks MongoDB for duplicates, and uploads."""
     print("Hunting for global trends with Images & Links...")
     master_content = "=== GRAND LINE NEWS: GLOBAL TRENDS ===\n\n"
     
@@ -96,6 +102,32 @@ def hunt_for_new_trends():
         
         time.sleep(1) 
 
+    # --- MONGODB DUPLICATE CHECK ---
+    # Create a unique 'fingerprint' of the text
+    content_hash = hashlib.md5(master_content.encode('utf-8')).hexdigest()
+    
+    if MONGO_URI:
+        try:
+            client = MongoClient(MONGO_URI)
+            db = client.grandline_news
+            collection = db.trends_history
+            
+            last_record = collection.find_one({"_id": "latest_trends"})
+            
+            if last_record and last_record['hash'] == content_hash:
+                print("🛑 No new trends detected. Skipping Telegram upload to avoid spam.")
+                return  # Exit the function early!
+            
+            # If it's new, update the database with the new fingerprint
+            collection.update_one(
+                {"_id": "latest_trends"},
+                {"$set": {"hash": content_hash}},
+                upsert=True
+            )
+        except Exception as e:
+            print(f"⚠️ MongoDB Error (sending anyway): {e}")
+
+    # --- SEND TO TELEGRAM ---
     filename = "Global_Trends_Pro.txt"
     with open(filename, "w", encoding="utf-8") as file:
         file.write(master_content)
@@ -105,15 +137,19 @@ def hunt_for_new_trends():
     if os.path.exists(filename):
         os.remove(filename)
 
-    print("Finished global scan and sent the pro file.\n")
+    print("Finished global scan.\n")
+
 if __name__ == "__main__":
+    # Start the anti-sleep server
+    keep_alive()
+    
     print("Broadcaster started. Running initial global scan...")
     hunt_for_new_trends() 
     
-    # Schedule to run every 1 minute
-    schedule.every(1).minutes.do(hunt_for_new_trends)
+    # Schedule to run every 30 minutes
+    schedule.every(30).minutes.do(hunt_for_new_trends)
     
-    print("Scheduler active. Waiting for the next minute loop...")
+    print("Scheduler active. Waiting for the next 30-minute loop...")
     while True:
         schedule.run_pending()
-        time.sleep(1800)
+        time.sleep(1) # Rests for 1 second so it doesn't max out your CPU
