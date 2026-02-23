@@ -5,11 +5,26 @@ import time
 import requests
 import os
 import hashlib
+import threading
+from flask import Flask
 from pymongo import MongoClient
-from keep_alive import keep_alive
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# --- THE DUMMY WEB SERVER ---
+# This opens the door so Render doesn't kill the app!
+app_web = Flask(__name__)
+
+@app_web.route('/')
+def health_check():
+    return "📡 Broadcaster is Alive and Hunting for News!"
+
+def run_web():
+    # Render assigns a dynamic port, so we MUST grab it from the OS
+    port = int(os.environ.get("PORT", 8080))
+    app_web.run(host="0.0.0.0", port=port)
+# ----------------------------
 
 # Pulling credentials from Render Environment Variables safely
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -140,9 +155,11 @@ def hunt_for_new_trends():
     print("Finished global scan.\n")
 
 if __name__ == "__main__":
-    # Start the anti-sleep server
-    keep_alive()
+    # 1. Start the anti-sleep dummy server natively in the background
+    print("🌐 Starting Dummy Web Server for Render Health Check...")
+    threading.Thread(target=run_web, daemon=True).start()
     
+    # 2. Run the main bot logic
     print("Broadcaster started. Running initial global scan...")
     hunt_for_new_trends() 
     
